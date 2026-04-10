@@ -527,6 +527,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         logsAuthenticated = false;
         shellAuthenticated = false;
+        document.getElementById('plaintext-output').textContent = 'Keine Daten vom Client.';
+        document.getElementById('logs-output').innerHTML = '';
+        document.getElementById('shell-output').innerHTML = '';
 
         document.getElementById('detail-title').textContent = m.client_name || clientId;
         updateDetailStatus(m.online);
