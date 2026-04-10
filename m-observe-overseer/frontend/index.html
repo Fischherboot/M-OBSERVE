@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>M-OBSERVE</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <canvas id="bg-canvas"></canvas>
+
+    <!-- NAV (hidden until setup done) -->
+    <nav class="glass-nav hidden" id="main-nav">
+        <div class="nav-content">
+            <div class="logo-text">M-<span class="gradient-text">OBSERVE</span></div>
+            <ul class="nav-links">
+                <li><a href="#dashboard" class="active" data-page="dashboard">Dashboard</a></li>
+                <li><a href="#settings" data-page="settings">Einstellungen</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main>
+        <!-- ═══ SETUP PAGE ═══ -->
+        <section id="page-setup" class="page">
+            <div class="setup-box" id="setup-form">
+                <div class="logo-text" style="font-size:1.6rem;margin-bottom:4px;">M-<span class="gradient-text">OBSERVE</span></div>
+                <p class="setup-sub">Setup</p>
+                <input type="password" class="input-field" id="setup-pw1" placeholder="Master-Passwort festlegen">
+                <input type="password" class="input-field" id="setup-pw2" placeholder="Passwort bestätigen">
+                <button class="btn-gradient" style="width:100%" id="setup-btn">Setup abschließen</button>
+                <div id="setup-error" class="error-msg"></div>
+            </div>
+
+            <div class="setup-box hidden" id="setup-complete">
+                <div class="logo-text" style="font-size:1.6rem;margin-bottom:4px;">M-<span class="gradient-text">OBSERVE</span></div>
+                <p class="setup-sub">Setup abgeschlossen!</p>
+                <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:8px;">Dein API-Key:</p>
+                <div class="api-key-display" id="setup-key-display"></div>
+                <p style="color:var(--text-secondary);font-size:0.82rem;margin-bottom:24px;">Diesen Key brauchst du beim Einrichten der Clients. Du findest ihn auch jederzeit in den Einstellungen.</p>
+                <button class="btn-gradient" style="width:100%" id="setup-done-btn">Zum Dashboard</button>
+            </div>
+        </section>
+
+        <!-- ═══ DASHBOARD ═══ -->
+        <section id="page-dashboard" class="page hidden">
+            <div id="dashboard-grid" class="dashboard-grid"></div>
+            <div id="dashboard-empty" class="dashboard-empty hidden">
+                <p>Noch keine Clients verbunden.</p>
+                <p class="hint">Richte einen Client ein und er erscheint hier automatisch.</p>
+            </div>
+        </section>
+
+        <!-- ═══ DETAIL VIEW ═══ -->
+        <section id="page-detail" class="page hidden">
+            <div class="detail-header">
+                <span class="detail-back" id="detail-back">←</span>
+                <span class="detail-title" id="detail-title"></span>
+                <span class="detail-status" id="detail-status"></span>
+            </div>
+
+            <div class="detail-tabs" id="detail-tabs"></div>
+
+            <!-- Tab: Übersicht -->
+            <div class="tab-content" id="tab-overview">
+                <div class="stats-grid" id="overview-stats"></div>
+
+                <div id="overview-cpus" style="margin-top:20px;"></div>
+                <div id="overview-gpus" style="margin-top:20px;"></div>
+                <div id="overview-temps" style="margin-top:20px;"></div>
+
+                <h4 style="color:var(--text-heading);margin:20px 0 12px;">Netzwerk</h4>
+                <div id="overview-network"></div>
+            </div>
+
+            <!-- Tab: Prozesse -->
+            <div class="tab-content" id="tab-processes">
+                <div class="process-table" id="process-table-wrap">
+                    <div class="spinner-large"></div>
+                </div>
+            </div>
+
+            <!-- Tab: Sessions -->
+            <div class="tab-content" id="tab-sessions">
+                <div id="sessions-list"></div>
+            </div>
+
+            <!-- Tab: Logs -->
+            <div class="tab-content" id="tab-logs">
+                <div class="terminal-container">
+                    <div class="terminal-header">
+                        <div class="traffic-lights"><span></span><span></span><span></span></div>
+                        <span class="terminal-title">Live Logs</span>
+                    </div>
+                    <div class="terminal-body" id="logs-output"></div>
+                    <div class="terminal-input-row">
+                        <input type="text" class="terminal-input" id="logs-filter" placeholder="Filter...">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab: Services -->
+            <div class="tab-content" id="tab-services">
+                <div id="services-list"></div>
+            </div>
+
+            <!-- Tab: Disks -->
+            <div class="tab-content" id="tab-disks">
+                <h4 style="color:var(--text-heading);margin-bottom:12px;">Partitionen</h4>
+                <div id="disks-list"></div>
+                <div id="smart-section" class="hidden" style="margin-top:24px;">
+                    <h4 style="color:var(--text-heading);margin-bottom:12px;">S.M.A.R.T.</h4>
+                    <div id="smart-list"></div>
+                </div>
+            </div>
+
+            <!-- Tab: Plaintext -->
+            <div class="tab-content" id="tab-plaintext">
+                <div class="terminal-container">
+                    <div class="terminal-header">
+                        <div class="traffic-lights"><span></span><span></span><span></span></div>
+                        <span class="terminal-title">Custom Data</span>
+                    </div>
+                    <div class="terminal-body" id="plaintext-output" style="color:var(--text-primary);min-height:200px;">Keine Daten vom Client.</div>
+                </div>
+            </div>
+
+            <!-- Tab: Shell -->
+            <div class="tab-content" id="tab-shell">
+                <div class="terminal-container">
+                    <div class="terminal-header">
+                        <div class="traffic-lights"><span></span><span></span><span></span></div>
+                        <span class="terminal-title">Remote Shell</span>
+                    </div>
+                    <div class="terminal-body" id="shell-output"></div>
+                    <div class="terminal-input-row">
+                        <input type="text" class="terminal-input" id="shell-input" placeholder="Befehl eingeben...">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab: Updates -->
+            <div class="tab-content" id="tab-updates">
+                <div id="updates-info"></div>
+                <div id="updates-list"></div>
+                <div style="margin-top:16px;" id="updates-action"></div>
+                <div class="terminal-container hidden" id="updates-terminal" style="margin-top:16px;">
+                    <div class="terminal-header">
+                        <div class="traffic-lights"><span></span><span></span><span></span></div>
+                        <span class="terminal-title">Update Output</span>
+                    </div>
+                    <div class="terminal-body" id="updates-output"></div>
+                </div>
+            </div>
+
+            <!-- Tab: Aktionen -->
+            <div class="tab-content" id="tab-actions">
+                <div class="actions-container">
+                    <button class="btn-gradient action-btn-large" id="action-reboot">🔄 Maschine neustarten</button>
+                    <button class="btn-danger action-btn-large" id="action-shutdown">⏻ Maschine herunterfahren</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══ SETTINGS ═══ -->
+        <section id="page-settings" class="page hidden">
+            <h2 style="color:var(--text-heading);margin-bottom:8px;">Einstellungen</h2>
+            <p style="color:var(--text-secondary);font-size:0.95rem;margin-bottom:30px;">Konfiguration des M-OBSERVE Hosts.</p>
+
+            <div class="settings-section">
+                <h3>Master-Passwort</h3>
+                <div class="setting-row">
+                    <label class="setting-label">Aktuelles Passwort</label>
+                    <input type="password" class="input-field" id="set-pw-current" placeholder="Aktuelles Passwort">
+                </div>
+                <div class="setting-row">
+                    <label class="setting-label">Neues Passwort</label>
+                    <input type="password" class="input-field" id="set-pw-new" placeholder="Neues Passwort">
+                </div>
+                <div class="setting-row">
+                    <label class="setting-label">Neues Passwort bestätigen</label>
+                    <input type="password" class="input-field" id="set-pw-confirm" placeholder="Neues Passwort bestätigen">
+                </div>
+                <button class="btn-gradient" id="set-pw-btn">Passwort ändern</button>
+                <div id="set-pw-msg"></div>
+            </div>
+
+            <div class="settings-section">
+                <h3>API-Key</h3>
+                <div class="api-key-display" id="settings-api-key" style="font-size:1.3rem;"></div>
+                <button class="btn-outline" id="set-key-btn">Key regenerieren</button>
+                <p class="setting-hint">Achtung: Alle Clients müssen danach neu konfiguriert werden.</p>
+                <div id="set-key-msg"></div>
+            </div>
+
+            <div class="settings-section">
+                <h3>Intervalle</h3>
+                <div class="setting-row">
+                    <label class="setting-label">Telemetrie-Sendeintervall (Sekunden)</label>
+                    <input type="number" class="input-field" id="set-telemetry" min="1" max="60" value="3">
+                </div>
+                <div class="setting-row">
+                    <label class="setting-label">Snapshot-Speicherintervall (Minuten)</label>
+                    <input type="number" class="input-field" id="set-snapshot" min="1" max="60" value="5">
+                </div>
+                <button class="btn-gradient" id="set-intervals-btn">Speichern</button>
+                <div id="set-intervals-msg"></div>
+            </div>
+        </section>
+    </main>
+
+    <!-- ═══ PASSWORD MODAL (reusable) ═══ -->
+    <div class="modal-overlay" id="modal-password">
+        <div class="modal-backdrop"></div>
+        <div class="modal-box">
+            <h3 id="modal-pw-title">Passwort bestätigen</h3>
+            <p id="modal-pw-desc"></p>
+            <input type="password" class="input-field" id="modal-pw-input" placeholder="Master-Passwort">
+            <div id="modal-pw-error" class="error-msg"></div>
+            <div class="modal-buttons">
+                <button class="btn-outline" id="modal-pw-cancel">Abbrechen</button>
+                <button class="btn-gradient" id="modal-pw-confirm">Bestätigen</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ CONFIRM MODAL (reusable) ═══ -->
+    <div class="modal-overlay" id="modal-confirm">
+        <div class="modal-backdrop"></div>
+        <div class="modal-box">
+            <h3 id="modal-cf-title">Bestätigung</h3>
+            <p id="modal-cf-desc"></p>
+            <div class="modal-buttons" id="modal-cf-buttons"></div>
+        </div>
+    </div>
+
+    <!-- ═══ CONTEXT MENU ═══ -->
+    <div class="context-menu hidden" id="context-menu"></div>
+
+    <footer>
+        <div class="footer-text">
+            M-OBSERVE | <a href="https://343.im/OBSERVE" target="_blank">343.im/OBSERVE</a>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>
