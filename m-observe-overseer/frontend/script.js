@@ -17,6 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let logsAuthenticated = false;
     let shellAuthenticated = false;
     let logsAutoScroll = true;
+    let cachedPassword = null;
 
     // ══════════════════════════════════════
     //  CANVAS BACKGROUND
@@ -259,6 +260,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const dashboardGrid = document.getElementById('dashboard-grid');
     const dashboardEmpty = document.getElementById('dashboard-empty');
 
+    // ── Drag & Drop order persistence ──
+    let cardOrder = JSON.parse(localStorage.getItem('m-observe-card-order') || '[]');
+    let dragSrcId = null;
+
+    function saveCardOrder() {
+        const order = [];
+        dashboardGrid.querySelectorAll('.machine-card').forEach(c => {
+            if (c.dataset.clientId) order.push(c.dataset.clientId);
+        });
+        cardOrder = order;
+        localStorage.setItem('m-observe-card-order', JSON.stringify(order));
+    }
+
     function renderDashboard() {
         const ids = Object.keys(machines);
         if (ids.length === 0) {
@@ -269,43 +283,71 @@ document.addEventListener('DOMContentLoaded', () => {
         dashboardGrid.classList.remove('hidden');
         dashboardEmpty.classList.add('hidden');
 
-        // Sort: online first, then alpha
+        // Sort: use saved order first, then online first, then alpha for new ones
+        const orderMap = {};
+        cardOrder.forEach((cid, i) => { orderMap[cid] = i; });
         ids.sort((a, b) => {
+            const aInOrder = a in orderMap;
+            const bInOrder = b in orderMap;
+            if (aInOrder && bInOrder) return orderMap[a] - orderMap[b];
+            if (aInOrder && !bInOrder) return -1;
+            if (!aInOrder && bInOrder) return 1;
+            // Both new: online first, then alpha
             const ao = machines[a].online ? 0 : 1;
             const bo = machines[b].online ? 0 : 1;
             if (ao !== bo) return ao - bo;
             return (machines[a].client_name || '').localeCompare(machines[b].client_name || '');
         });
 
-        dashboardGrid.innerHTML = '';
+        // Build a map of existing cards by client_id
+        const existingCards = {};
+        dashboardGrid.querySelectorAll('.machine-card').forEach(card => {
+            if (card.dataset.clientId) existingCards[card.dataset.clientId] = card;
+        });
+
+        // Remove cards for clients that no longer exist
+        const idSet = new Set(ids);
+        Object.keys(existingCards).forEach(cid => {
+            if (!idSet.has(cid)) { existingCards[cid].remove(); delete existingCards[cid]; }
+        });
+
         ids.forEach((id, idx) => {
             const m = machines[id];
-            const card = document.createElement('div');
-            card.className = 'machine-card' + (m.online ? '' : ' offline');
-            card.style.animationDelay = `${idx * 0.06}s`;
-
             const live = m.live || m;
-            // Multi-CPU: aggregate from cpus array or single cpu
             const cpuArr = live.cpus || (live.cpu ? [live.cpu] : []);
             const cpu = cpuArr.length === 1 ? cpuArr[0].usage_percent : (cpuArr.length > 1 ? cpuArr.reduce((s, c) => s + (c.usage_percent || 0), 0) / cpuArr.length : null);
             const ram = live.ram ? live.ram.percent : null;
-            const temp = live.temperatures ? (live.temperatures.cpu || Object.values(live.temperatures)[0]) : null;
-            const uptime = live.uptime_seconds ? formatUptime(live.uptime_seconds) : '—';
+
+            // Disk total: sum all partitions
+            const disks = live.disks || [];
+            let diskTotalBytes = 0, diskUsedBytes = 0;
+            disks.forEach(d => {
+                diskTotalBytes += (d.total_bytes || d.total || 0);
+                diskUsedBytes += (d.used_bytes || d.used || 0);
+            });
+            const diskPercent = diskTotalBytes > 0 ? (diskUsedBytes / diskTotalBytes * 100) : null;
+
+            // Avg temperature across all sensors
+            const temps = live.temperatures || {};
+            const tempVals = Object.values(temps).map(v => {
+                if (typeof v === 'object' && v !== null) return v.current ?? v.value ?? null;
+                return typeof v === 'number' ? v : null;
+            }).filter(v => v !== null && !isNaN(v));
+            const avgTemp = tempVals.length > 0 ? tempVals.reduce((s, v) => s + v, 0) / tempVals.length : null;
 
             let barsHTML = '';
             if (m.online && cpu !== null) {
                 barsHTML += statBar('CPU', cpu);
-                if (cpuArr.length > 1) {
-                    cpuArr.forEach((c, i) => { barsHTML += statBar(`CPU ${i}`, c.usage_percent || 0); });
-                }
                 barsHTML += statBar('RAM', ram || 0);
+                if (diskPercent !== null) barsHTML += statBar('DISK', diskPercent);
+                if (avgTemp !== null) barsHTML += statBar('TEMP', Math.min(100, avgTemp), `${Math.round(avgTemp)}°C`);
             }
 
-            const metaLeft = temp !== null && temp !== undefined ? `${Math.round(temp)}°C  ·  ${live.os || ''}` : (live.os || '');
-            const metaRight = m.online ? `Uptime: ${uptime}` : '';
+            const metaLeft = live.os || '';
 
+            let innerHTML;
             if (!m.online) {
-                card.innerHTML = `
+                innerHTML = `
                     <div class="machine-card-inner">
                         <div class="card-header">
                             <span class="status-dot offline"></span>
@@ -316,7 +358,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 `;
             } else {
-                card.innerHTML = `
+                innerHTML = `
                     <div class="machine-card-inner">
                         <div class="card-header">
                             <span class="status-dot online"></span>
@@ -326,36 +368,108 @@ document.addEventListener('DOMContentLoaded', () => {
                         ${barsHTML}
                         <div class="card-meta">
                             <span>${esc(metaLeft)}</span>
-                            <span>${metaRight}</span>
                         </div>
                     </div>
                 `;
             }
 
-            if (m.online) {
-                card.addEventListener('click', () => openDetail(id));
+            let card = existingCards[id];
+            if (card) {
+                // Update existing card in-place — no animation replay
+                card.className = 'machine-card' + (m.online ? '' : ' offline');
+                card.innerHTML = innerHTML;
             } else {
-                // Long-press context menu for offline cards
-                let pressTimer = null;
-                card.addEventListener('pointerdown', (e) => {
-                    pressTimer = setTimeout(() => showContextMenu(e, id), 700);
-                });
-                card.addEventListener('pointerup', () => clearTimeout(pressTimer));
-                card.addEventListener('pointerleave', () => clearTimeout(pressTimer));
-                // Also handle normal click to show last info
-                card.addEventListener('click', () => openDetailOffline(id));
+                // New card — create with entrance animation
+                card = document.createElement('div');
+                card.className = 'machine-card' + (m.online ? '' : ' offline');
+                card.dataset.clientId = id;
+                card.style.animationDelay = `${idx * 0.06}s`;
+                card.innerHTML = innerHTML;
             }
 
-            dashboardGrid.appendChild(card);
+            // (Re-)bind event listeners
+            const clone = card.cloneNode(true);
+            clone.dataset.clientId = id;
+            clone.draggable = true;
+
+            // Drag & Drop
+            clone.addEventListener('dragstart', (e) => {
+                dragSrcId = id;
+                clone.classList.add('dragging');
+                e.dataTransfer.effectAllowed = 'move';
+            });
+            clone.addEventListener('dragend', () => {
+                clone.classList.remove('dragging');
+                dashboardGrid.querySelectorAll('.machine-card').forEach(c => c.classList.remove('drag-over'));
+                dragSrcId = null;
+                saveCardOrder();
+            });
+            clone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                if (dragSrcId && dragSrcId !== id) clone.classList.add('drag-over');
+            });
+            clone.addEventListener('dragleave', () => clone.classList.remove('drag-over'));
+            clone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                clone.classList.remove('drag-over');
+                if (!dragSrcId || dragSrcId === id) return;
+                const srcCard = dashboardGrid.querySelector(`[data-client-id="${dragSrcId}"]`);
+                if (!srcCard) return;
+                const allCards = [...dashboardGrid.querySelectorAll('.machine-card')];
+                const srcIdx = allCards.indexOf(srcCard);
+                const tgtIdx = allCards.indexOf(clone);
+                if (srcIdx < tgtIdx) {
+                    clone.after(srcCard);
+                } else {
+                    clone.before(srcCard);
+                }
+            });
+
+            if (m.online) {
+                clone.addEventListener('click', (e) => {
+                    // Don't open detail if we just finished dragging
+                    if (e.defaultPrevented) return;
+                    openDetail(id);
+                });
+            } else {
+                let pressTimer = null;
+                clone.addEventListener('pointerdown', (e) => {
+                    pressTimer = setTimeout(() => showContextMenu(e, id), 700);
+                });
+                clone.addEventListener('pointerup', () => clearTimeout(pressTimer));
+                clone.addEventListener('pointerleave', () => clearTimeout(pressTimer));
+                clone.addEventListener('click', () => openDetailOffline(id));
+            }
+
+            if (existingCards[id]) {
+                // Existing card — no entrance animation
+                existingCards[id].replaceWith(clone);
+            } else {
+                // New card — entrance animation
+                clone.classList.add('machine-card-enter');
+                clone.addEventListener('animationend', () => clone.classList.remove('machine-card-enter'), { once: true });
+                dashboardGrid.appendChild(clone);
+            }
+            existingCards[id] = clone;
+        });
+
+        // Reorder if needed (e.g. online/offline status changed)
+        ids.forEach((id, idx) => {
+            const card = dashboardGrid.querySelector(`[data-client-id="${id}"]`);
+            if (card && card !== dashboardGrid.children[idx]) {
+                dashboardGrid.insertBefore(card, dashboardGrid.children[idx]);
+            }
         });
     }
 
-    function statBar(label, percent) {
+    function statBar(label, percent, customValue) {
         const p = Math.min(100, Math.max(0, Math.round(percent)));
         const cls = p < 60 ? 'bar-green' : p < 80 ? 'bar-orange' : 'bar-red';
+        const display = customValue || `${p}%`;
         return `
             <div class="stat-bar">
-                <div class="stat-bar-label"><span>${label}</span><span>${p}%</span></div>
+                <div class="stat-bar-label"><span>${label}</span><span>${display}</span></div>
                 <div class="stat-bar-track"><div class="stat-bar-fill ${cls}" style="width:${p}%"></div></div>
             </div>
         `;
@@ -537,7 +651,11 @@ document.addEventListener('DOMContentLoaded', () => {
     async function handleLogsTab() {
         if (logsAuthenticated) return;
         const pw = await askPassword('Logs anzeigen');
-        if (!pw) return;
+        if (!pw) {
+            const overviewBtn = document.querySelector('.detail-tab');
+            switchTab('overview', overviewBtn);
+            return;
+        }
         logsAuthenticated = true;
         document.getElementById('logs-output').textContent = '';
         try {
@@ -552,7 +670,11 @@ document.addEventListener('DOMContentLoaded', () => {
     async function handleShellTab() {
         if (shellAuthenticated) return;
         const pw = await askPassword('Shell-Zugriff');
-        if (!pw) return;
+        if (!pw) {
+            const overviewBtn = document.querySelector('.detail-tab');
+            switchTab('overview', overviewBtn);
+            return;
+        }
         shellAuthenticated = true;
         document.getElementById('shell-output').textContent = '';
         try {
@@ -566,7 +688,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Shell input
     document.getElementById('shell-input').addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && ws && ws.readyState === WebSocket.OPEN && currentDetail) {
+        if (e.key === 'Enter' && shellAuthenticated && ws && ws.readyState === WebSocket.OPEN && currentDetail) {
             ws.send(JSON.stringify({
                 type: 'shell_input',
                 client_id: currentDetail,
@@ -1164,6 +1286,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({ current_password: cur, new_password: nw })
             });
             if (res.ok) {
+                cachedPassword = null;
                 msg.innerHTML = '<span class="success-msg">Passwort geändert!</span>';
                 document.getElementById('set-pw-current').value = '';
                 document.getElementById('set-pw-new').value = '';
@@ -1221,6 +1344,7 @@ document.addEventListener('DOMContentLoaded', () => {
     //  MODALS
     // ══════════════════════════════════════
     function askPassword(title, desc) {
+        if (cachedPassword) return Promise.resolve(cachedPassword);
         return new Promise(resolve => {
             const overlay = document.getElementById('modal-password');
             document.getElementById('modal-pw-title').textContent = title || 'Passwort bestätigen';
@@ -1253,6 +1377,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                     const data = await res.json();
                     if (data.valid) {
+                        cachedPassword = pw;
                         cleanup();
                         resolve(pw);
                     } else {

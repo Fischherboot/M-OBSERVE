@@ -328,6 +328,9 @@ main {
     transition: var(--transition-smooth);
     position: relative;
     overflow: hidden;
+}
+
+.machine-card-enter {
     opacity: 0;
     animation: fadeSlideUp 0.5s cubic-bezier(0.23, 1, 0.32, 1) forwards;
 }
@@ -349,7 +352,6 @@ main {
 .machine-card.offline {
     opacity: 0.45;
     cursor: default;
-    animation: fadeSlideUp 0.5s cubic-bezier(0.23, 1, 0.32, 1) forwards;
 }
 
 .machine-card.offline:hover {
@@ -963,24 +965,19 @@ main {
 
 /* ═══ FOOTER ═══ */
 footer {
-    background: var(--bg-secondary);
-    padding: 30px 20px;
-    border-top: 1px solid var(--glass-border);
+    padding: 16px 20px;
     text-align: center;
-}
-
-.footer-text {
     color: var(--text-secondary);
-    font-size: 0.85rem;
+    font-size: 0.8rem;
 }
 
-.footer-text a {
+footer a {
     color: var(--color-purple);
     text-decoration: none;
     transition: var(--transition-smooth);
 }
 
-.footer-text a:hover { color: var(--color-orange); }
+footer a:hover { color: var(--color-orange); }
 
 /* ═══ HARDWARE BLOCKS (CPU, GPU detail panels) ═══ */
 .hw-block {
@@ -1218,3 +1215,8 @@ footer {
 }
 
 .context-menu-item.danger { color: var(--color-red); }
+
+/* Drag & Drop */
+.machine-card[draggable="true"] { cursor: grab; }
+.machine-card.dragging { opacity: 0.4; cursor: grabbing; }
+.machine-card.drag-over { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 16px; }
