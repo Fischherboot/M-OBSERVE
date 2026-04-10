@@ -199,6 +199,11 @@ async def api_regenerate_key(request: Request):
 @app.post("/api/settings/intervals")
 async def api_update_intervals(request: Request):
     body = await request.json()
+    password = body.get("password", "")
+    config = await db.get_config()
+    if not config or not auth.check_password(password, config["password_hash"]):
+        raise HTTPException(401, "Wrong password")
+
     telemetry = int(body.get("telemetry_interval", 3))
     snapshot = int(body.get("snapshot_interval", 5))
     await db.update_intervals(telemetry, snapshot)

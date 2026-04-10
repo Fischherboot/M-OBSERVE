@@ -1300,10 +1300,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     document.getElementById('set-key-btn').addEventListener('click', async () => {
-        const ok = await askConfirm('API-Key wirklich regenerieren? Alle Clients müssen danach neu konfiguriert werden.', 'Ja, regenerieren', 'Abbrechen');
-        if (!ok) return;
-        const pw = await askPassword('Key regenerieren');
+        const pw = await askPassword('Key regenerieren', 'Passwort eingeben, um den API-Key zu regenerieren.', true);
         if (!pw) return;
+        const currentKey = document.getElementById('settings-api-key').textContent;
+        const keyOk = await askApiKeyConfirm(currentKey);
+        if (!keyOk) return;
         const msg = document.getElementById('set-key-msg');
         try {
             const res = await fetch('/api/settings/regenerate-key', {
@@ -1324,17 +1325,23 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     document.getElementById('set-intervals-btn').addEventListener('click', async () => {
+        const pw = await askPassword('Intervalle ändern', 'Passwort eingeben, um Intervalle zu speichern.', true);
+        if (!pw) return;
         const t = document.getElementById('set-telemetry').value;
         const s = document.getElementById('set-snapshot').value;
         const msg = document.getElementById('set-intervals-msg');
         try {
-            await fetch('/api/settings/intervals', {
+            const res = await fetch('/api/settings/intervals', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ telemetry_interval: parseInt(t), snapshot_interval: parseInt(s) })
+                body: JSON.stringify({ telemetry_interval: parseInt(t), snapshot_interval: parseInt(s), password: pw })
             });
-            msg.innerHTML = '<span class="success-msg">Gespeichert!</span>';
-            setTimeout(() => { msg.innerHTML = ''; }, 2000);
+            if (res.ok) {
+                msg.innerHTML = '<span class="success-msg">Gespeichert!</span>';
+                setTimeout(() => { msg.innerHTML = ''; }, 2000);
+            } else {
+                msg.innerHTML = '<span class="error-msg">Falsches Passwort</span>';
+            }
         } catch (e) {
             msg.innerHTML = '<span class="error-msg">Fehler</span>';
         }
@@ -1343,8 +1350,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // ══════════════════════════════════════
     //  MODALS
     // ══════════════════════════════════════
-    function askPassword(title, desc) {
-        if (cachedPassword) return Promise.resolve(cachedPassword);
+    function askPassword(title, desc, forcePrompt) {
+        if (!forcePrompt && cachedPassword) return Promise.resolve(cachedPassword);
         return new Promise(resolve => {
             const overlay = document.getElementById('modal-password');
             document.getElementById('modal-pw-title').textContent = title || 'Passwort bestätigen';
@@ -1445,6 +1452,51 @@ document.addEventListener('DOMContentLoaded', () => {
     // ══════════════════════════════════════
     //  HELPERS
     // ══════════════════════════════════════
+
+    function askApiKeyConfirm(currentKey) {
+        return new Promise(resolve => {
+            const overlay = document.getElementById('modal-apikey');
+            const input = document.getElementById('modal-ak-input');
+            const error = document.getElementById('modal-ak-error');
+            input.value = '';
+            error.textContent = '';
+            overlay.classList.add('active');
+            setTimeout(() => input.focus(), 100);
+
+            function cleanup() { overlay.classList.remove('active'); }
+
+            document.getElementById('modal-ak-confirm').addEventListener('click', () => {
+                if (input.value.trim() !== currentKey) {
+                    error.textContent = 'API-Key stimmt nicht überein';
+                    return;
+                }
+                cleanup();
+                resolve(true);
+            }, { once: true });
+
+            document.getElementById('modal-ak-cancel').addEventListener('click', () => {
+                cleanup();
+                resolve(false);
+            }, { once: true });
+
+            overlay.querySelector('.modal-backdrop').addEventListener('click', () => {
+                cleanup();
+                resolve(false);
+            }, { once: true });
+
+            input.addEventListener('keydown', function handler(e) {
+                if (e.key === 'Enter') {
+                    document.getElementById('modal-ak-confirm').click();
+                    input.removeEventListener('keydown', handler);
+                }
+                if (e.key === 'Escape') {
+                    cleanup();
+                    resolve(false);
+                    input.removeEventListener('keydown', handler);
+                }
+            });
+        });
+    }
     function esc(str) {
         const d = document.createElement('div');
         d.textContent = str;

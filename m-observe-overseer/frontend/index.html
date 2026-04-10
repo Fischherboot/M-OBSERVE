@@ -235,6 +235,21 @@
         </div>
     </div>
 
+    <!-- ═══ API KEY CONFIRM MODAL ═══ -->
+    <div class="modal-overlay" id="modal-apikey">
+        <div class="modal-backdrop"></div>
+        <div class="modal-box">
+            <h3>API-Key bestätigen</h3>
+            <p>Gib den aktuellen API-Key ein, um das Regenerieren zu bestätigen.</p>
+            <input type="text" class="input-field" id="modal-ak-input" placeholder="Aktueller API-Key" autocomplete="off">
+            <div id="modal-ak-error" class="error-msg"></div>
+            <div class="modal-buttons">
+                <button class="btn-outline" id="modal-ak-cancel">Abbrechen</button>
+                <button class="btn-gradient" id="modal-ak-confirm">Bestätigen</button>
+            </div>
+        </div>
+    </div>
+
     <!-- ═══ CONTEXT MENU ═══ -->
     <div class="context-menu hidden" id="context-menu"></div>
 
