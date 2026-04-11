@@ -155,9 +155,3 @@ Der Overseer ist bewusst minimal gehalten. Keine Zeitreihen-Datenbank, kein Prom
 <p align="center">
   <a href="https://moritzsoft.de/#license">Moritzsoft Open License</a>
 </p>
-
----
-
-<p align="center">
-  Gebaut von <a href="https://moritzsoft.de">moritzsoft.de</a>
-</p>
