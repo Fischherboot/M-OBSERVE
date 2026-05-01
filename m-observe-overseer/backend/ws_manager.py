@@ -6,13 +6,15 @@ from typing import Dict, Set
 
 
 class ConnectionManager:
-    """Manages WebSocket connections from clients and frontend browsers."""
+    """Manages WebSocket connections from clients, frontend browsers and plugins."""
 
     def __init__(self):
         # client_id -> WebSocket (from monitoring clients)
         self.clients: Dict[str, WebSocket] = {}
         # Set of frontend WebSocket connections
         self.frontends: Set[WebSocket] = set()
+        # Set of plugin WebSocket connections (read-only consumers, e.g. status addon)
+        self.plugins: Set[WebSocket] = set()
         # client_id -> latest telemetry dict (in-memory live data)
         self.live_data: Dict[str, dict] = {}
         # client_id -> last snapshot save time
@@ -31,6 +33,12 @@ class ConnectionManager:
     def disconnect_frontend(self, ws: WebSocket):
         self.frontends.discard(ws)
 
+    async def connect_plugin(self, ws: WebSocket):
+        self.plugins.add(ws)
+
+    def disconnect_plugin(self, ws: WebSocket):
+        self.plugins.discard(ws)
+
     def update_live_data(self, client_id: str, data: dict):
         self.live_data[client_id] = data
 
@@ -43,6 +51,16 @@ class ConnectionManager:
                 dead.append(ws)
         for ws in dead:
             self.frontends.discard(ws)
+
+    async def broadcast_to_plugins(self, message: dict):
+        dead = []
+        for ws in self.plugins:
+            try:
+                await ws.send_json(message)
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            self.plugins.discard(ws)
 
     async def send_to_client(self, client_id: str, message: dict) -> bool:
         ws = self.clients.get(client_id)

@@ -114,6 +114,11 @@ async def api_machine_delete(client_id: str, request: Request):
     if not config or not auth.check_password(password, config["password_hash"]):
         raise HTTPException(401, "Wrong password")
     await db.delete_machine(client_id)
+    # Notify plugins so they drop the device from their state
+    await manager.broadcast_to_plugins({
+        "type": "device_deleted",
+        "client_id": client_id
+    })
     return {"success": True}
 
 
@@ -211,6 +216,43 @@ async def api_update_intervals(request: Request):
 
 
 # ──────────────────────────────────────────────
+#  PLUGIN API (read-only consumers, e.g. status addon)
+# ──────────────────────────────────────────────
+
+def _device_payload(machine: dict) -> dict:
+    """Reduce a machine row to the read-only fields plugins need."""
+    cid = machine["client_id"]
+    return {
+        "client_id": cid,
+        "client_name": machine.get("client_name"),
+        "hostname": machine.get("hostname"),
+        "os": machine.get("os"),
+        "platform": machine.get("platform"),
+        "ip": machine.get("ip"),
+        "last_seen": machine.get("last_seen"),
+        "online": manager.is_client_connected(cid)
+    }
+
+
+async def _check_plugin_api_key(api_key: str) -> bool:
+    config = await db.get_config()
+    return bool(config) and api_key == config["api_key"]
+
+
+@app.get("/api/plugin/devices")
+async def api_plugin_devices(request: Request):
+    """REST endpoint for plugins to poll the current device list.
+    Auth via X-API-Key header (same key as for clients)."""
+    api_key = request.headers.get("X-API-Key", "")
+    if not await _check_plugin_api_key(api_key):
+        raise HTTPException(401, "Invalid API key")
+
+    machines = await db.get_all_machines()
+    devices = [_device_payload(m) for m in machines]
+    return {"devices": devices}
+
+
+# ──────────────────────────────────────────────
 #  WEBSOCKET: Client Connections (from monitored machines)
 # ──────────────────────────────────────────────
 
@@ -249,6 +291,17 @@ async def ws_client(ws: WebSocket):
         "type": "client_online",
         "client_id": client_id,
         "client_name": client_name
+    })
+
+    # Notify plugins (independent event channel)
+    await manager.broadcast_to_plugins({
+        "type": "device_online",
+        "client_id": client_id,
+        "client_name": client_name,
+        "hostname": hostname,
+        "os": os_str,
+        "platform": platform,
+        "ip": ip_addr
     })
 
     snapshot_interval = config.get("snapshot_interval", 5) * 60  # minutes -> seconds
@@ -313,6 +366,10 @@ async def ws_client(ws: WebSocket):
             "type": "client_offline",
             "client_id": client_id
         })
+        await manager.broadcast_to_plugins({
+            "type": "device_offline",
+            "client_id": client_id
+        })
 
 
 # ──────────────────────────────────────────────
@@ -359,6 +416,55 @@ async def ws_frontend(ws: WebSocket):
         pass
     finally:
         manager.disconnect_frontend(ws)
+
+
+# ──────────────────────────────────────────────
+#  WEBSOCKET: Plugin Connections (read-only consumers, e.g. status addon)
+# ──────────────────────────────────────────────
+
+@app.websocket("/ws/plugin")
+async def ws_plugin(ws: WebSocket):
+    """Read-only firehose for plugins. Plugin auths with the same api_key
+    used by clients, then receives:
+      - one initial 'init' frame with the full device list
+      - 'device_online' / 'device_offline' / 'device_deleted' events
+    Plugins cannot send commands; any incoming frames are ignored."""
+    await ws.accept()
+
+    # Auth handshake
+    try:
+        init = await asyncio.wait_for(ws.receive_json(), timeout=10)
+    except Exception:
+        await ws.close(1008, "Auth timeout")
+        return
+
+    api_key = init.get("api_key", "")
+    if not await _check_plugin_api_key(api_key):
+        await ws.close(1008, "Invalid API key")
+        return
+
+    await manager.connect_plugin(ws)
+
+    # Send initial snapshot of all known devices
+    machines = await db.get_all_machines()
+    devices = [_device_payload(m) for m in machines]
+    try:
+        await ws.send_json({"type": "init", "devices": devices})
+    except Exception:
+        manager.disconnect_plugin(ws)
+        return
+
+    # Hold the connection open. We don't process incoming frames from plugins,
+    # but we keep reading so disconnects fire properly.
+    try:
+        while True:
+            await ws.receive_text()
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        manager.disconnect_plugin(ws)
 
 
 # ──────────────────────────────────────────────
